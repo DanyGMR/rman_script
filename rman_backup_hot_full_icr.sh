@@ -7,11 +7,12 @@ LOCKFILE="/tmp/${SCRIPT_NAME}.lock"
 PIDFILE="/tmp/${SCRIPT_NAME}.pid"
 TEMPFILE="/tmp/${SCRIPT_NAME}.temp"
 export ProgDir=/home/oracle/scripts
+export LogDir=/home/oracle/scripts/logs
 #START_SCRIPT=$(date +%s)
 DOM=$(date +%d) # Date of the Month e.g. 27
 DOW=$(date +%u) # Date of the Month e.g. 27
 . /home/oracle/.bash_profile
-DATECODE=$(date +_%Y%m%d_%H%M)
+#DATECODE=$(date +_%Y%m%d_%H%M)
 CP=/usr/bin/cp
 CAT=/usr/bin/cat
 MV=/usr/bin/mv
@@ -20,17 +21,35 @@ DATECODE=$(date +_%Y%m%d_%H%M%S)
 DATECODE2=$(date +%Y%m%d_%H%M%S)
 DATECODE1=$(date +%Y%m%d%H%M%S)
 DSUBJ=$(date +'%d/%B/%Y %A at %T')
-export RmanDir1=/backup1/rman/${DATECODE2}
-export RmanDir2=/backup2/rman/${DATECODE2}
+export RmanBaseDir1=/backup1/rman
+export RmanBaseDir2=/backup2/rman
+export RmanDir1=${RmanBaseDir1}/${DATECODE2}
+export RmanDir2=${RmanBaseDir2}/${DATECODE2}
 export RmanDir=/backup/rman
-export RmanLogFile=/home/oracle/scripts/logs/hot_rman${DATECODE}.log
-export RmanLogFile1=${RmanLogFile}
-echo $RmanLogFile1
 EXEC_SCRIPT_TIME=$(date +"%Y%m%d%H%M")
 source ${ProgDir}/config.sh
-#. /home/oracle/scripts/config.sh
 rlvl=$1
 
+###changes for only one LOG FILE
+if [ -n "$rlvl" ] && [ "$rlvl" = "0" ]; then
+        export Level=0
+elif [ "$rlvl" = "1" ]; then
+        export Level=1
+elif [ "$rlvl" = "2" ]; then
+        export Level=2
+else
+       if [ "$DOW" = "6" ]; then
+                export Level=0
+        elif [ "$DOW" = "z" ]; then
+                export Level=2
+        else
+                export Level=1
+        fi
+fi
+
+export RmanLogFile=/home/oracle/scripts/logs/hot_rman_lvl${Level}${DATECODE}.log
+echo "$RmanLogFile"
+###
 # Check if the lock file exists
 
 if [ -f "$LOCKFILE" ]; then
@@ -63,9 +82,6 @@ error_exit() {
     exit 1
 }
 
-set_log_file() {
-export RmanLogFile=/home/oracle/scripts/logs/hot_rman_lvl${Level}${DATECODE}.log
-}
 
 # Check PMON Process
 check_pmon() {
@@ -104,15 +120,6 @@ EOF
     log "Oracle database is available (Status: $db_status)"
 }
 
-combine_logs() {
-$CAT "${RmanLogFile1}" "${RmanLogFile}" > "${TEMPFILE}"
-#$CAT "${RmanLogFile1}" "${RmanLogFile}" | tee "${TEMPFILE}"
-#echo "Press Enter to continue..."
-#read  # Wait for user input (press Enter)
-#echo "You pressed Enter. Proceeding..."
-$MV "${TEMPFILE}" "${RmanLogFile}"
-$RM "$RmanLogFile1"
-}
 
 # Function to perform RMAN backup
 do_rman_backup() {
@@ -148,99 +155,6 @@ exit
 _EOS_
 }
 
-
-#RMAN lvl0
-
-do_rman_lvl0() {
-	log "Starting RMAN level 0 backup"
-	rman target / log="$RmanLogFile" append <<_EOS_
-#configure DEFAULT DEVICE TYPE TO DISK;
-#configure CHANNEL DEVICE TYPE DISK FORMAT '/backup/rman/aviv_%d_%D_%M_%Y_%s.bck';
-##configure DEVICE TYPE DISK PARALLELISM 2 BACKUP TYPE TO COMPRESSED BACKUPSET;
-#configure DEVICE TYPE DISK PARALLELISM rparallel} BACKUP TYPE TO COMPRESSED BACKUPSET;
-#configure controlfile autobackup on;
-#configure CONTROLFILE AUTOBACKUP FORMAT FOR DEVICE TYPE DISK TO '/backup/rman/csfiles_%F';
-#CONFIGURE BACKUP OPTIMIZATION OFF;
-#CONFIGURE RETENTION POLICY TO RECOVERY WINDOW OF 7 DAYS;
-#
-report schema;
-show all;
-#
-# Crosscheck
-crosscheck archivelog all;
-crosscheck backup;
-crosscheck backup of controlfile;
-#
-sql 'alter system switch logfile';
-sql 'alter system archive log current';
-sql 'alter system checkpoint';
-
-run {
-backup incremental level 0 database
-format '${RmanDir}/db_lvl0_%d_%I_${DATECODE2}_%U.rman'
-tag "${ORACLE_SID}_BAK_DB_${EXEC_SCRIPT_TIME}"
-plus archivelog not backed up delete input
-format '${RmanDir}/arc_%d_%I_${DATECODE2}_%U.rman'
-tag "${ORACLE_SID}_BAK_ARC_${EXEC_SCRIPT_TIME}";
-}
-CROSSCHECK BACKUP;
-CROSSCHECK BACKUPSET;
-crosscheck archivelog all;
-list expired backup;
-list expired copy;
-DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;
-DELETE NOPROMPT EXPIRED BACKUP;
-DELETE NOPROMPT OBSOLETE;
-delete force noprompt expired copy;
-exit
-_EOS_
-}
-
-#RMAN lvl1
-do_rman_lvl1() {
-	log "Starting RMAN level 1 backup"
-	rman target / log="$RmanLogFile" append <<_EOS_
-#configure DEFAULT DEVICE TYPE TO DISK;
-#configure CHANNEL DEVICE TYPE DISK FORMAT '/backup/rman/aviv_%d_%D_%M_%Y_%s.bck';
-#configure DEVICE TYPE DISK PARALLELISM {rparallel} BACKUP TYPE TO COMPRESSED BACKUPSET;
-#configure controlfile autobackup on;
-#configure CONTROLFILE AUTOBACKUP FORMAT FOR DEVICE TYPE DISK TO '/backup/rman/csfiles_%F';
-#CONFIGURE BACKUP OPTIMIZATION OFF;
-#CONFIGURE RETENTION POLICY TO RECOVERY WINDOW OF 7 DAYS;
-#
-report schema;
-show all;
-#
-# Crosscheck
-crosscheck archivelog all;
-crosscheck backup;
-crosscheck backup of controlfile;
-#
-sql 'alter system switch logfile';
-sql 'alter system archive log current';
-sql 'alter system checkpoint';
-
-run {
-backup incremental level 1 database
-format '${RmanDir}/db_lvl1_%d_%I_${DATECODE2}_%U.rman'
-tag "${ORACLE_SID}_BAK_DB_${EXEC_SCRIPT_TIME}"
-plus archivelog not backed up delete input
-format '${RmanDir}/arc_%d_%I_${DATECODE2}_%U.rman'
-tag "${ORACLE_SID}_BAK_ARC_${EXEC_SCRIPT_TIME}";
-}
-CROSSCHECK BACKUP;
-CROSSCHECK BACKUPSET;
-crosscheck archivelog all;
-list expired backup;
-list expired copy;
-DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;
-DELETE NOPROMPT EXPIRED BACKUP;
-DELETE NOPROMPT OBSOLETE;
-delete force noprompt expired copy;
-exit
-_EOS_
-}
-
 # RMAN full hot backup
 
 do_rman() {
@@ -249,23 +163,24 @@ do_rman() {
 	#/bin/chmod -R 777 /backup/rman/*
 	export Level=FULL
 }
+
 clean_log() {
 	log "Starting Clean log"
-	/bin/find /home/oracle/scripts/logs/ -name "hot_rman*.log" -mtime +28 -exec rm {} \;
+	/bin/find ${LogDir} -type f -name "hot_rman*.log" -mtime +28 -exec rm {} \;
 }
 
 copybkp1() {
 	mkdir -p "${RmanDir1}"
 	$CP ${RmanDir}/* "${RmanDir1}"
 	$CP "${RmanLogFile}" "${RmanDir1}"
-	find /backup1/rman/* -type d -ctime +1 -exec rm -rf {} +
+	find ${RmanBaseDir1}/* -type d -ctime +1 -exec rm -rf {} +
 }
 
 copybkp2() {
 	if [ "$DOM" = "01" ]; then
 		mkdir -p "${RmanDir2}"
 		$CP ${RmanDir}/* "${RmanDir2}"
-		$CP /home/oracle/scripts/logs/hot_rman"$DATECODE".log "${RmanDir2}"
+		$CP ${LogDir}/hot_rman"$DATECODE".log "${RmanDir2}"
 	fi
 }
 
@@ -279,12 +194,6 @@ mail_success() {
 
 mail_no_orcl() {
 	echo Log File Attached | /bin/mailx -r "${MailFrom}" -s "ORACLE NOT RUNNING on ${ClientName}" -a "${RmanLogFile}" "${MailList}"
-}
-
-conditional_mail_no_orcl() {
-    if [ "$USE_MAIL" = "Y" ]; then
-        mail_no_orcl
-    fi
 }
 
 conditional_mail() {
@@ -308,21 +217,10 @@ check_for_err() {
 #sleep 15
 do_rman_incr() {
 	#log "Starting RMAN incremental backup"
-	if [ "$DOW" = "6" ]; then
-		export Level=0
-	elif [ "$DOW" = "z" ]; then
-		export Level=2
-	else
-		export Level=1
-	fi
-	set_log_file
 	do_rman_backup $Level
 }
 
 calculate_time() {
-#STOP_SCRIPT=$(date +%s)
-#RUN_SCRIPT=$(echo "scale=2;($STOP_SCRIPT - $START_SCRIPT)/60" | bc -l)
-#echo "minutes: ${RUN_SCRIPT}"
 export RUN_HOURS=$((SECONDS / 3600))
 export RUN_MINUTES=$(((SECONDS % 3600) / 60))
 export RUN_REMAINING_SECONDS=$((SECONDS % 60))
@@ -334,27 +232,12 @@ echo $SCR_TAKEN
 echo "rlvl:$rlvl"
 
 main(){
-if [ -n "$rlvl" ] && [ "$rlvl" = "0" ]; then
-	export Level=0
-	set_log_file
-	do_rman_backup 0
-elif [ "$rlvl" = "1" ]; then
-        export Level=1
-	set_log_file
-	do_rman_backup 1
-elif [ "$rlvl" = "2" ]; then
-        export Level=2
-	set_log_file
-	do_rman_backup 2
-else
-	do_rman_incr
-fi
+do_rman_backup $Level
 }
 
 check_pmon
 check_sqlplus
 main
 calculate_time
-combine_logs
 clean_log
 check_for_err
