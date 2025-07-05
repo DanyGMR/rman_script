@@ -310,13 +310,24 @@ do_rman_incr() {
 	#log "Starting RMAN incremental backup"
 	if [ "$DOW" = "6" ]; then
 		export Level=0
-	elif [ "DOW" = "z" ]; then
+	elif [ "$DOW" = "z" ]; then
 		export Level=2
 	else
 		export Level=1
 	fi
 	set_log_file
 	do_rman_backup $Level
+}
+
+calculate_time() {
+#STOP_SCRIPT=$(date +%s)
+#RUN_SCRIPT=$(echo "scale=2;($STOP_SCRIPT - $START_SCRIPT)/60" | bc -l)
+#echo "minutes: ${RUN_SCRIPT}"
+export RUN_HOURS=$((SECONDS / 3600))
+export RUN_MINUTES=$(((SECONDS % 3600) / 60))
+export RUN_REMAINING_SECONDS=$((SECONDS % 60))
+SCR_TAKEN=$RUN_HOURS:$RUN_MINUTES:$RUN_REMAINING_SECONDS
+echo $SCR_TAKEN
 }
 
 #do_rman
@@ -343,14 +354,7 @@ fi
 check_pmon
 check_sqlplus
 main
-#STOP_SCRIPT=$(date +%s)
-#RUN_SCRIPT=$(echo "scale=2;($STOP_SCRIPT - $START_SCRIPT)/60" | bc -l)
-#echo "minutes: ${RUN_SCRIPT}"
-export RUN_HOURS=$((SECONDS / 3600))
-export RUN_MINUTES=$(((SECONDS % 3600) / 60))
-export RUN_REMAINING_SECONDS=$((SECONDS % 60))
-SCR_TAKEN=$RUN_HOURS:$RUN_MINUTES:$RUN_REMAINING_SECONDS
-echo $SCR_TAKEN
+calculate_time
 combine_logs
 clean_log
 check_for_err
